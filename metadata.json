@@ -1,0 +1,6 @@
+{
+  "name": "Telegram Chess Arena",
+  "description": "Telegram Mini App chess platform with real-time matchmaking, wagering, and Gemini-powered smart commentary.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

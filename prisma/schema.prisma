@@ -1,0 +1,248 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum MatchStatus {
+  WAITING
+  MATCHMAKING
+  ACTIVE
+  CHECKMATE
+  DRAW
+  RESIGNED
+  TIMEOUT
+  ABORTED
+}
+
+enum EscrowStatus {
+  NONE
+  ESCROWED
+  PAID_OUT
+  REFUNDED
+  DISPUTED
+}
+
+model User {
+  id              String           @id // Telegram Unified ID
+  username        String           @unique
+  firstName       String
+  lastName        String?
+  photoUrl        String?
+  walletAddress   String?          @unique
+  rating          Int              @default(1200)
+  streakDays      Int              @default(0)
+  lastMoveAt      DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  // Wallet and Bets
+  wallets         Wallet[]
+  wagersAsWhite   Wager[]          @relation("WagerWhite")
+  wagersAsBlack   Wager[]          @relation("WagerBlack")
+  payouts         Payout[]
+
+  // Associations & Progression
+  clanId          String?
+  clan            Clan?            @relation(fields: [clanId], references: [id])
+  battlePassId    String?          @unique
+  battlePass      BattlePass?      @relation(fields: [battlePassId], references: [id])
+  
+  // Game Histories
+  matchesAsWhite  Match[]          @relation("MatchWhite")
+  matchesAsBlack  Match[]          @relation("MatchBlack")
+  
+  rivalries1      Rivalry[]        @relation("RivalPlayer1")
+  rivalries2      Rivalry[]        @relation("RivalPlayer2")
+  
+  antiCheatScores AntiCheatScore[]
+  cosmetics       UserCosmetic[]
+  notifications   Notification[]
+  achievements    UserAchievement[]
+  reportsCreated  Report[]         @relation("Reporter")
+  reportsAgainst  Report[]         @relation("Target")
+}
+
+model Wallet {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  walletType    String   // e.g. "Tonkeeper", "MyTonWallet", "TelegramWallet"
+  address       String   @unique
+  publicKey     String?
+  isConnected   Boolean  @default(true)
+  createdAt     DateTime @default(now())
+}
+
+model Match {
+  id              String           @id @default(uuid())
+  whiteId         String
+  white           User             @relation("MatchWhite", fields: [whiteId], references: [id])
+  blackId         String
+  black           User             @relation("MatchBlack", fields: [blackId], references: [id])
+  status          MatchStatus      @default(ACTIVE)
+  fen             String           @default("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+  historySan      String[]
+  timePreset      String           // e.g., "1m", "3m", "5m"
+  whiteTimeLeftMs Int
+  blackTimeLeftMs Int
+  winnerColor     String?          // "white", "black", "draw"
+  wagerAmount     Float            @default(0.0) // TON betting size
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  moves           Move[]
+  wagers          Wager[]
+  antiCheatScores AntiCheatScore[]
+}
+
+model Move {
+  id            String   @id @default(uuid())
+  matchId       String
+  match         Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  moveNum       Int
+  playerColor   String   // "white" | "black"
+  san           String   // e.g., "e4"
+  fenBefore     String
+  fenAfter      String
+  durationMs    Int
+  playedAt      DateTime @default(now())
+}
+
+model Wager {
+  id              String       @id @default(uuid())
+  matchId         String
+  match           Match        @relation(fields: [matchId], references: [id])
+  whiteId         String
+  white           User         @relation("WagerWhite", fields: [whiteId], references: [id])
+  blackId         String
+  black           User         @relation("WagerBlack", fields: [blackId], references: [id])
+  amount          Float
+  currency        String       @default("TON")
+  escrowAddress   String
+  status          EscrowStatus @default(NONE)
+  createdAt       DateTime     @default(now())
+  payouts         Payout[]
+}
+
+model Payout {
+  id              String       @id @default(uuid())
+  wagerId         String
+  recipientId     String
+  recipient       User         @relation(fields: [recipientId], references: [id])
+  txHash          String       @unique
+  amountDisbursed Float
+  commissionFee   Float
+  disbursedAt     DateTime     @default(now())
+  wager           Wager        @relation(fields: [wagerId], references: [id])
+}
+
+model Clan {
+  id           String   @id @default(uuid())
+  name         String   @unique
+  tag          String   @unique
+  rating       Int      @default(1200)
+  trophies     Int      @default(0)
+  createdAt    DateTime @default(now())
+  members      User[]
+}
+
+model Rivalry {
+  id          String   @id @default(uuid())
+  player1Id   String
+  player1     User     @relation("RivalPlayer1", fields: [player1Id], references: [id])
+  player2Id   String
+  player2     User     @relation("RivalPlayer2", fields: [player2Id], references: [id])
+  matchesPlay Int      @default(0)
+  winsPlayer1 Int      @default(0)
+  winsPlayer2 Int      @default(0)
+  updatedAt   DateTime @updatedAt
+}
+
+model AntiCheatScore {
+  id                    String   @id @default(uuid())
+  matchId               String
+  match                 Match    @relation(fields: [matchId], references: [id])
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id])
+  suspiciousIntervals   Int      @default(0)
+  engineCorrelationPct  Float    @default(0.0)
+  behavioralFingerprint Float    @default(0.0)
+  cheatProbability      Float    @default(0.0)
+  trustScore            Int      @default(100)
+  isShadowBanned        Boolean  @default(false)
+  updatedAt             DateTime @updatedAt
+}
+
+model Cosmetic {
+  id          String         @id @default(uuid())
+  name        String
+  category    String         // e.g. "board_theme", "pieces_set"
+  imageUrl    String
+  priceStars  Int
+  priceTON    Float
+  users       UserCosmetic[]
+}
+
+model UserCosmetic {
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  cosmeticId String
+  cosmetic   Cosmetic @relation(fields: [cosmeticId], references: [id])
+  equipped   Boolean  @default(false)
+
+  @@id([userId, cosmeticId])
+}
+
+model BattlePass {
+  id          String   @id @default(uuid())
+  level       Int      @default(1)
+  currentXP   Int      @default(0)
+  unlockedTiers Int[]
+  hasPremium  Boolean  @default(false)
+  user        User?
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  title     String
+  body      String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Achievement {
+  id          String            @id
+  title       String
+  description String
+  badgeIcon   String
+  xpReward    Int
+  users       UserAchievement[]
+}
+
+model UserAchievement {
+  userId        String
+  user          User        @relation(fields: [userId], references: [id])
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id])
+  earnedAt      DateTime    @default(now())
+
+  @@id([userId, achievementId])
+}
+
+model Report {
+  id          String   @id @default(uuid())
+  reporterId  String
+  reporter    User     @relation("Reporter", fields: [reporterId], references: [id])
+  targetId    String
+  target      User     @relation("Target", fields: [targetId], references: [id])
+  reason      String
+  evidenceJson String?
+  checked     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
